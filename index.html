@@ -666,7 +666,7 @@
   var syncAction = "refresh";
   var pass = "";
   var dirty = false;
-  var syncing = false, again = false, askedPass = false, lastOk = 0, debounceTimer = null;
+  var syncing = false, again = false, askedPass = false, authFailed = false, lastOk = 0, debounceTimer = null;
 
   function setSync(state, text, action, label) {
     syncEl.dataset.state = state;
@@ -694,7 +694,7 @@
     var p = window.prompt("Пароль синхронизации (тот же, что в SYNC_PASSWORD на Netlify):", "");
     p = p ? p.trim() : "";
     if (!p) { setSync("auth", "Нужен пароль", "pass", "Ввести пароль"); return; }
-    pass = p; writePass(p);
+    pass = p; writePass(p); authFailed = false;
     syncNow(true);
   }
   function showOffline() {
@@ -737,7 +737,7 @@
 
   function syncNow(force, depth) {
     clearTimeout(debounceTimer); debounceTimer = null;
-    if (!pass) { needPass(); return; }
+    if (authFailed && !pass) { needPass(); return; }   // сервер просит пароль, а его ещё нет
     if (syncing) { again = true; return; }
     if (!force && !dirty && Date.now() - lastOk < MIN_GAP) return;
     if (navigator.onLine === false) { showOffline(); return; }
@@ -769,7 +769,7 @@
       signal: ctrl ? ctrl.signal : undefined
     }).then(function (res) {
       if (res.status === 401) {
-        pass = ""; writePass("");
+        pass = ""; writePass(""); authFailed = true;
         setSync("auth", "Нужен пароль", "pass", "Ввести пароль");
         finish();
         if (!askedPass) needPass();
@@ -777,8 +777,7 @@
       }
       return res.json().catch(function () { return null; }).then(function (data) {
         if (!res.ok || !data || !Array.isArray(data.items)) {
-          if (data && data.error === "not-configured") setSync("off", "Сервер не настроен: нет SYNC_PASSWORD", "refresh", "Повторить");
-          else setSync("off", "Ошибка сервера (" + res.status + ")", "refresh", "Повторить");
+          setSync("off", "Ошибка сервера (" + res.status + ")", "refresh", "Повторить");
           finish();
           return;
         }
@@ -796,7 +795,7 @@
   }
 
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden) { save(); if (dirty && pass) syncNow(true); }   // успеть отправить перед сворачиванием
+    if (document.hidden) { save(); if (dirty) syncNow(true); }   // успеть отправить перед сворачиванием
     else syncNow(false);                                                  // вернулись на вкладку: подтянуть
   });
   window.addEventListener("pagehide", save);
@@ -811,7 +810,7 @@
   pass = readPass();
   renderAll();
   if (!saveWorks) say("Браузер не даёт сохранять данные на странице. Пользуйся кнопкой «Сохранить в файл».");
-  if (pass) syncNow(true); else needPass();
+  syncNow(true);                                  // пароль спросим только если сервер его потребует
 </script>
 </body>
 </html>
